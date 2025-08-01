@@ -4,76 +4,22 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
+
     runs-on: windows-latest
 
     steps:
-    - name: Download ngrok
+    - name: Download
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-    - name: Extract ngrok
+    - name: Extract
       run: Expand-Archive ngrok.zip
-    - name: Authenticate ngrok
+    - name: Auth
       run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable Remote Desktop
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
-    
-    - name: Create cleanup script
-      run: |
-        $cleanupScript = @'
-        # Cleanup Script - Run this manually after connecting via RDP
-        Write-Host "Starting cleanup process..." -ForegroundColor Yellow
-
-        # Target directories
-        $dirs = @(
-            "C:\Program Files\Microsoft Visual Studio",
-            "C:\Program Files\dotnet",
-            "C:\Program Files (x86)\Android",
-            "C:\Program Files (x86)\Windows Kits"
-        )
-
-        # Fast deletion function
-        function Remove-DirectoryFast {
-            param($path)
-            
-            if (Test-Path $path) {
-                Write-Host "Deleting $path..." -ForegroundColor Cyan
-                
-                # Method 1: Robocopy mirror empty dir (fastest)
-                $emptyDir = New-Item -ItemType Directory -Path "$env:TEMP\empty_$((Get-Date).Ticks)" -Force
-                robocopy "$emptyDir" "$path" /mir /r:1 /w:1 /np /njh /njs | Out-Null
-                Remove-Item $emptyDir -Force -ErrorAction SilentlyContinue
-                
-                # Method 2: Force delete if still exists
-                if (Test-Path $path) {
-                    cmd /c "rd /s /q `"$path`"" 2>&1 | Out-Null
-                }
-                
-                # Final verification
-                if (Test-Path $path) {
-                    Write-Host "Failed to delete $path" -ForegroundColor Red
-                } else {
-                    Write-Host "Successfully deleted $path" -ForegroundColor Green
-                }
-            }
-        }
-
-        # Start cleanup
-        foreach ($dir in $dirs) {
-            Remove-DirectoryFast $dir
-        }
-
-        Write-Host "Cleanup completed!" -ForegroundColor Green
-        pause
-'@
-
-        # Save to desktop
-        [System.IO.File]::WriteAllText("C:\Users\runneradmin\Desktop\cleanup.ps1", $cleanupScript)
-        Write-Host "Cleanup script saved to Desktop"
-
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
     - name: Create Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
