@@ -27,7 +27,7 @@ jobs:
     - name: Create Admin User
       run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
       
-    - name: Create Optimized Cleanup Script
+    - name: Create Cleanup Script
       run: |
         $cleanupScript = @'
         # Disable Recycle Bin for all drives
@@ -74,50 +74,83 @@ jobs:
             "C:\Program Files (x86)\Android"
         )
         
-        # Create a response file with "Y" answers
-        $responseFile = [System.IO.Path]::GetTempFileName()
-        Set-Content $responseFile -Value ("Y" * 100)
+        $total = $directories.Count
+        $completed = 0
+        $successCount = 0
+        $skippedCount = 0
         
-        # Fast deletion command
-        $delCommand = {
-            param($path, $response)
-            cmd /c "takeown /f `"$path`" /r /d y > nul 2>&1"
-            cmd /c "icacls `"$path`" /grant *S-1-1-0:F /t /c /q > nul 2>&1"
-            cmd /c "del /f/s/q `"$path`" < `"$response`" > nul 2>&1"
-            cmd /c "rd /s/q `"$path`" < `"$response`" > nul 2>&1"
+        # Function to aggressively delete with retries
+        function Remove-Aggressive {
+            param([string]$Path)
+            
+            $maxAttempts = 3
+            $attempt = 0
+            $success = $false
+            
+            # Create temp response file with answers for all prompts
+            $responseFile = [System.IO.Path]::GetTempFileName()
+            Set-Content $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
+            
+            while (-not $success -and $attempt -lt $maxAttempts) {
+                $attempt++
+                
+                try {
+                    # Attempt to take ownership
+                    cmd /c "takeown /f `"$Path`" /r /d y 2>&1"
+                    
+                    # Grant full permissions
+                    cmd /c "icacls `"$Path`" /grant *S-1-1-0:(OI)(CI)F /t /c /q 2>&1"
+                    
+                    # Delete files and folders with forced responses
+                    cmd /c "del /f/s/q/a `"$Path`" < `"$responseFile`" 2>&1"
+                    cmd /c "rd /s/q `"$Path`" < `"$responseFile`" 2>&1"
+                    
+                    # Check if deletion was successful
+                    if (-not (Test-Path $Path)) {
+                        $success = $true
+                    }
+                    else {
+                        Start-Sleep -Seconds 2
+                    }
+                }
+                catch {
+                    # Ignore errors and retry
+                    Start-Sleep -Seconds 2
+                }
+            }
+            
+            Remove-Item $responseFile -ErrorAction SilentlyContinue
+            return $success
         }
         
-        # Start all deletions in parallel
-        $jobs = @()
         foreach ($dir in $directories) {
+            $completed++
+            $percentComplete = [math]::Round(($completed / $total) * 100)
+            
+            Write-Progress -Activity "Cleaning System" -Status "Deleting: $dir" `
+                -PercentComplete $percentComplete `
+                -CurrentOperation "Attempt $completed of $total directories ($percentComplete%)"
+            
             if (Test-Path $dir) {
-                $jobs += Start-Job -ScriptBlock $delCommand -ArgumentList $dir, $responseFile
+                if (Remove-Aggressive -Path $dir) {
+                    $successCount++
+                }
+                else {
+                    $skippedCount++
+                }
+            }
+            else {
+                $skippedCount++
             }
         }
         
-        # Monitor progress
-        $total = $jobs.Count
-        $completed = 0
-        
-        while ($jobs | Where-Object { $_.State -eq 'Running' }) {
-            $completed = ($jobs | Where-Object { $_.State -ne 'Running' }).Count
-            $percentComplete = [math]::Round(($completed / $total) * 100)
-            
-            Write-Progress -Activity "Fast Parallel Cleanup" -Status "Processing $completed/$total directories" `
-                -PercentComplete $percentComplete `
-                -CurrentOperation "$percentComplete% complete"
-            
-            Start-Sleep -Milliseconds 500
-        }
-        
-        # Cleanup
-        Remove-Item $responseFile -ErrorAction SilentlyContinue
-        $jobs | Remove-Job -Force
-        
-        Write-Host "`nParallel cleanup completed! $total directories processed" -ForegroundColor Green
+        Write-Host "`nCleanup Summary:" -ForegroundColor Cyan
+        Write-Host "Successfully deleted: $successCount directories" -ForegroundColor Green
+        Write-Host "Skipped: $skippedCount directories" -ForegroundColor Yellow
+        Write-Host "Total processed: $completed of $total directories" -ForegroundColor White
         
         # Keep window open
-        Write-Host "`nPress any key to close this window..."
+        Write-Host "`nOperation completed. Press any key to close this window..."
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         '@
         
@@ -125,7 +158,7 @@ jobs:
         
     - name: Create Desktop Shortcuts
       run: |
-        # Create Cleanup shortcut
+        # Create Cleanup shortcut with persistent window
         $shortcutPath = "$env:Public\Desktop\Run Cleanup.lnk"
         $WshShell = New-Object -ComObject WScript.Shell
         $Shortcut = $WshShell.CreateShortcut($shortcutPath)
