@@ -16,14 +16,14 @@ jobs:
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
     - name: Enable Remote Desktop
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
-    
-    - name: Clean up directories
       run: |
-        # Delete directories completely (bypassing Recycle Bin)
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
+    
+    - name: Fast Cleanup Directories
+      run: |
         $dirs = @(
             "C:\Program Files\Microsoft Visual Studio",
             "C:\Program Files\dotnet",
@@ -31,23 +31,39 @@ jobs:
             "C:\Program Files (x86)\Windows Kits"
         )
         
+        # Create PowerShell jobs for parallel deletion
+        $jobs = @()
         foreach ($dir in $dirs) {
             if (Test-Path $dir) {
-                Write-Host "Deleting $dir..."
-                try {
-                    # Using cmd to force delete with rd/s/q command
-                    cmd /c "rd /s /q `"$dir`""
-                    Write-Host "Successfully deleted $dir"
-                } catch {
-                    Write-Host "Error deleting $dir : $_"
+                $jobScript = {
+                    param($path)
+                    Write-Output "Deleting $path..."
+                    $null = cmd /c "del /f/s/q `"$path`" > nul 2>&1"  # Fast file deletion first
+                    $null = cmd /c "rd /s/q `"$path`" > nul 2>&1"     # Then remove directories
+                    Write-Output "Finished $path"
                 }
-            } else {
-                Write-Host "$dir does not exist"
+                $jobs += Start-Job -ScriptBlock $jobScript -ArgumentList $dir
             }
         }
         
-        # Optional: Run disk cleanup
-        cleanmgr /sagerun:1 | Out-Null
+        # Wait for all jobs with timeout (10 minutes max)
+        $jobs | Wait-Job -Timeout 600 | Out-Null
+        
+        # Force stop any hanging jobs after timeout
+        $jobs | Where-Object { $_.State -eq 'Running' } | Stop-Job -Force
+        $jobs | Remove-Job -Force
+        
+        # Final check and force delete if anything remains
+        foreach ($dir in $dirs) {
+            if (Test-Path $dir) {
+                Write-Output "Force deleting remaining files in $dir"
+                $null = cmd /c "takeown /f `"$dir`" /r /d y > nul 2>&1"
+                $null = cmd /c "icacls `"$dir`" /grant administrators:F /t > nul 2>&1"
+                $null = cmd /c "rd /s/q `"$dir`" > nul 2>&1"
+            }
+        }
+        
+        Write-Output "Cleanup completed"
         
     - name: Create Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
