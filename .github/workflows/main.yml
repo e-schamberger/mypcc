@@ -4,22 +4,50 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-
     runs-on: windows-latest
 
     steps:
-    - name: Download
+    - name: Download ngrok
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-    - name: Extract
+    - name: Extract ngrok
       run: Expand-Archive ngrok.zip
-    - name: Auth
+    - name: Authenticate ngrok
       run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable TS
+    - name: Enable Remote Desktop
       run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
     - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
     - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@123456789" -Force)
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
+    
+    - name: Clean up directories
+      run: |
+        # Delete directories completely (bypassing Recycle Bin)
+        $dirs = @(
+            "C:\Program Files\Microsoft Visual Studio",
+            "C:\Program Files\dotnet",
+            "C:\Program Files (x86)\Android",
+            "C:\Program Files (x86)\Windows Kits"
+        )
+        
+        foreach ($dir in $dirs) {
+            if (Test-Path $dir) {
+                Write-Host "Deleting $dir..."
+                try {
+                    # Using cmd to force delete with rd/s/q command
+                    cmd /c "rd /s /q `"$dir`""
+                    Write-Host "Successfully deleted $dir"
+                } catch {
+                    Write-Host "Error deleting $dir : $_"
+                }
+            } else {
+                Write-Host "$dir does not exist"
+            }
+        }
+        
+        # Optional: Run disk cleanup
+        cleanmgr /sagerun:1 | Out-Null
+        
     - name: Create Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
