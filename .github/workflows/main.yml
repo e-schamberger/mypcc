@@ -31,39 +31,43 @@ jobs:
             "C:\Program Files (x86)\Windows Kits"
         )
         
-        # Create PowerShell jobs for parallel deletion
-        $jobs = @()
+        # تابع برای نمایش پیشرفت
+        function Show-Progress {
+            param($current, $total)
+            $percent = [math]::Round(($current / $total) * 100)
+            Write-Output "پیشرفت: $percent% ($current از $total پوشه پردازش شد)"
+        }
+        
+        $total = $dirs.Count
+        $completed = 0
+        
         foreach ($dir in $dirs) {
+            $completed++
+            Show-Progress $completed $total
+            
             if (Test-Path $dir) {
-                $jobScript = {
-                    param($path)
-                    Write-Output "Deleting $path..."
-                    $null = cmd /c "del /f/s/q `"$path`" > nul 2>&1"  # Fast file deletion first
-                    $null = cmd /c "rd /s/q `"$path`" > nul 2>&1"     # Then remove directories
-                    Write-Output "Finished $path"
+                Write-Output "در حال حذف $dir ..."
+                
+                # حذف سریع با robocopy (سریع‌ترین روش در ویندوز)
+                $emptyDir = New-Item -ItemType Directory -Path "$env:TEMP\empty" -Force
+                $null = robocopy "$emptyDir" "$dir" /mir /r:1 /w:1 /np /njh /njs
+                Remove-Item $emptyDir -Force
+                
+                # حذف نهایی پوشه
+                $null = cmd /c "rd /s /q `"$dir`" 2>nul"
+                
+                # اگر هنوز وجود داشت، با دسترسی ادمین حذف شود
+                if (Test-Path $dir) {
+                    $null = cmd /c "takeown /f `"$dir`" /r /d y 2>nul"
+                    $null = cmd /c "icacls `"$dir`" /grant administrators:F /t 2>nul"
+                    $null = cmd /c "rd /s /q `"$dir`" 2>nul"
                 }
-                $jobs += Start-Job -ScriptBlock $jobScript -ArgumentList $dir
+            } else {
+                Write-Output "$dir وجود نداشت"
             }
         }
         
-        # Wait for all jobs with timeout (10 minutes max)
-        $jobs | Wait-Job -Timeout 600 | Out-Null
-        
-        # Force stop any hanging jobs after timeout
-        $jobs | Where-Object { $_.State -eq 'Running' } | Stop-Job -Force
-        $jobs | Remove-Job -Force
-        
-        # Final check and force delete if anything remains
-        foreach ($dir in $dirs) {
-            if (Test-Path $dir) {
-                Write-Output "Force deleting remaining files in $dir"
-                $null = cmd /c "takeown /f `"$dir`" /r /d y > nul 2>&1"
-                $null = cmd /c "icacls `"$dir`" /grant administrators:F /t > nul 2>&1"
-                $null = cmd /c "rd /s/q `"$dir`" > nul 2>&1"
-            }
-        }
-        
-        Write-Output "Cleanup completed"
+        Write-Output "!پاکسازی با موفقیت انجام شد"
         
     - name: Create Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
