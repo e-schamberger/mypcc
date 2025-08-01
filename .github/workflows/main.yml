@@ -123,16 +123,16 @@ jobs:
         }
         
         Write-Host "`nCleanup Summary:" -ForegroundColor Cyan
-        Write-Host "✅ Successfully deleted: $successCount directories" -ForegroundColor Green
-        Write-Host "⏩ Skipped: $skippedCount directories" -ForegroundColor Yellow
-        Write-Host "📊 Total processed: $completed of $total directories" -ForegroundColor White
+        Write-Host "Successfully deleted: $successCount directories" -ForegroundColor Green
+        Write-Host "Skipped: $skippedCount directories" -ForegroundColor Yellow
+        Write-Host "Total processed: $completed of $total directories" -ForegroundColor White
         
         # Keep window open
-        Write-Host "`nOperation completed. Window will close automatically in 60 seconds..."
-        Start-Sleep -Seconds 60
+        Write-Host "`nOperation completed. Press any key to close this window..."
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         '@
         
-        Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript
+        Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript -Encoding UTF8
         
     - name: Create Desktop Shortcuts
       run: |
