@@ -76,6 +76,8 @@ jobs:
         
         $total = $directories.Count
         $completed = 0
+        $successCount = 0
+        $skippedCount = 0
         
         foreach ($dir in $directories) {
             $completed++
@@ -86,11 +88,29 @@ jobs:
                 -CurrentOperation "$completed of $total directories ($percentComplete%)"
             
             if (Test-Path $dir) {
-                Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+                # Create temp response file for automation
+                $responseFile = [System.IO.Path]::GetTempFileName()
+                Set-Content -Path $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
+                
+                # Delete with forced confirmation and error handling
+                try {
+                    cmd /c "del /f/s/q `"$dir`" < `"$responseFile`""
+                    cmd /c "rd /s/q `"$dir`" < `"$responseFile`""
+                    $successCount++
+                }
+                catch {
+                    $skippedCount++
+                }
+                finally {
+                    Remove-Item $responseFile -ErrorAction SilentlyContinue
+                }
             }
         }
         
-        Write-Host "Cleanup completed! $completed directories processed" -ForegroundColor Green
+        Write-Host "`nCleanup Summary:" -ForegroundColor Cyan
+        Write-Host "✅ Successfully processed: $successCount directories" -ForegroundColor Green
+        Write-Host "⏩ Skipped: $skippedCount directories" -ForegroundColor Yellow
+        Write-Host "📊 Total processed: $completed of $total directories" -ForegroundColor White
         '@
         
         Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript
