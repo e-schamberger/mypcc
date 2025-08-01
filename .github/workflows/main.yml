@@ -79,6 +79,28 @@ jobs:
         $successCount = 0
         $skippedCount = 0
         
+        # Function to automatically answer prompts
+        function Remove-All {
+            param([string]$Path)
+            
+            # Create temp response file
+            $responseFile = [System.IO.Path]::GetTempFileName()
+            Set-Content $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
+            
+            try {
+                # Delete files and folders
+                cmd /c "del /f/s/q/a `"$Path`" < `"$responseFile`" 2>&1"
+                cmd /c "rd /s/q `"$Path`" < `"$responseFile`" 2>&1"
+                return $true
+            }
+            catch {
+                return $false
+            }
+            finally {
+                Remove-Item $responseFile -ErrorAction SilentlyContinue
+            }
+        }
+        
         foreach ($dir in $directories) {
             $completed++
             $percentComplete = [math]::Round(($completed / $total) * 100)
@@ -88,41 +110,38 @@ jobs:
                 -CurrentOperation "$completed of $total directories ($percentComplete%)"
             
             if (Test-Path $dir) {
-                # Create temp response file for automation
-                $responseFile = [System.IO.Path]::GetTempFileName()
-                Set-Content -Path $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
-                
-                # Delete with forced confirmation and error handling
-                try {
-                    cmd /c "del /f/s/q `"$dir`" < `"$responseFile`""
-                    cmd /c "rd /s/q `"$dir`" < `"$responseFile`""
+                if (Remove-All -Path $dir) {
                     $successCount++
                 }
-                catch {
+                else {
                     $skippedCount++
                 }
-                finally {
-                    Remove-Item $responseFile -ErrorAction SilentlyContinue
-                }
+            }
+            else {
+                $skippedCount++
             }
         }
         
         Write-Host "`nCleanup Summary:" -ForegroundColor Cyan
-        Write-Host "✅ Successfully processed: $successCount directories" -ForegroundColor Green
+        Write-Host "✅ Successfully deleted: $successCount directories" -ForegroundColor Green
         Write-Host "⏩ Skipped: $skippedCount directories" -ForegroundColor Yellow
         Write-Host "📊 Total processed: $completed of $total directories" -ForegroundColor White
+        
+        # Keep window open
+        Write-Host "`nOperation completed. Window will close automatically in 60 seconds..."
+        Start-Sleep -Seconds 60
         '@
         
         Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript
         
     - name: Create Desktop Shortcuts
       run: |
-        # Create Cleanup shortcut
+        # Create Cleanup shortcut with persistent window
         $shortcutPath = "$env:Public\Desktop\Run Cleanup.lnk"
         $WshShell = New-Object -ComObject WScript.Shell
         $Shortcut = $WshShell.CreateShortcut($shortcutPath)
         $Shortcut.TargetPath = "powershell.exe"
-        $Shortcut.Arguments = "-ExecutionPolicy Bypass -File `"C:\Cleanup.ps1`""
+        $Shortcut.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"C:\Cleanup.ps1`""
         $Shortcut.IconLocation = "imageres.dll,99"
         $Shortcut.Save()
         
@@ -130,7 +149,7 @@ jobs:
         $tunnelShortcut = "$env:Public\Desktop\Start Tunnel.lnk"
         $Shortcut = $WshShell.CreateShortcut($tunnelShortcut)
         $Shortcut.TargetPath = "cmd.exe"
-        $Shortcut.Arguments = "/c `"C:\ngrok\ngrok.exe tcp 3389`""
+        $Shortcut.Arguments = "/k `"C:\ngrok\ngrok.exe tcp 3389`""
         $Shortcut.IconLocation = "shell32.dll,38"
         $Shortcut.Save()
         
