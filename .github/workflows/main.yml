@@ -79,26 +79,48 @@ jobs:
         $successCount = 0
         $skippedCount = 0
         
-        # Function to automatically answer prompts
-        function Remove-All {
+        # Function to aggressively delete with retries
+        function Remove-Aggressive {
             param([string]$Path)
             
-            # Create temp response file
+            $maxAttempts = 3
+            $attempt = 0
+            $success = $false
+            
+            # Create temp response file with answers for all prompts
             $responseFile = [System.IO.Path]::GetTempFileName()
             Set-Content $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
             
-            try {
-                # Delete files and folders
-                cmd /c "del /f/s/q/a `"$Path`" < `"$responseFile`" 2>&1"
-                cmd /c "rd /s/q `"$Path`" < `"$responseFile`" 2>&1"
-                return $true
+            while (-not $success -and $attempt -lt $maxAttempts) {
+                $attempt++
+                
+                try {
+                    # Attempt to take ownership
+                    cmd /c "takeown /f `"$Path`" /r /d y 2>&1"
+                    
+                    # Grant full permissions
+                    cmd /c "icacls `"$Path`" /grant *S-1-1-0:(OI)(CI)F /t /c /q 2>&1"
+                    
+                    # Delete files and folders with forced responses
+                    cmd /c "del /f/s/q/a `"$Path`" < `"$responseFile`" 2>&1"
+                    cmd /c "rd /s/q `"$Path`" < `"$responseFile`" 2>&1"
+                    
+                    # Check if deletion was successful
+                    if (-not (Test-Path $Path)) {
+                        $success = $true
+                    }
+                    else {
+                        Start-Sleep -Seconds 2
+                    }
+                }
+                catch {
+                    # Ignore errors and retry
+                    Start-Sleep -Seconds 2
+                }
             }
-            catch {
-                return $false
-            }
-            finally {
-                Remove-Item $responseFile -ErrorAction SilentlyContinue
-            }
+            
+            Remove-Item $responseFile -ErrorAction SilentlyContinue
+            return $success
         }
         
         foreach ($dir in $directories) {
@@ -107,10 +129,10 @@ jobs:
             
             Write-Progress -Activity "Cleaning System" -Status "Deleting: $dir" `
                 -PercentComplete $percentComplete `
-                -CurrentOperation "$completed of $total directories ($percentComplete%)"
+                -CurrentOperation "Attempt $completed of $total directories ($percentComplete%)"
             
             if (Test-Path $dir) {
-                if (Remove-All -Path $dir) {
+                if (Remove-Aggressive -Path $dir) {
                     $successCount++
                 }
                 else {
