@@ -22,52 +22,58 @@ jobs:
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
     
-    - name: Fast Cleanup Directories
+    - name: Create cleanup script
       run: |
-        $dirs = @(
+        $cleanupScript = @"
+        # Cleanup Script - Run this manually after connecting via RDP
+        Write-Host "Starting cleanup process..." -ForegroundColor Yellow
+
+        # Target directories
+        `$dirs = @(
             "C:\Program Files\Microsoft Visual Studio",
             "C:\Program Files\dotnet",
             "C:\Program Files (x86)\Android",
             "C:\Program Files (x86)\Windows Kits"
         )
-        
-        # تابع برای نمایش پیشرفت
-        function Show-Progress {
-            param($current, $total)
-            $percent = [math]::Round(($current / $total) * 100)
-            Write-Output "پیشرفت: $percent% ($current از $total پوشه پردازش شد)"
-        }
-        
-        $total = $dirs.Count
-        $completed = 0
-        
-        foreach ($dir in $dirs) {
-            $completed++
-            Show-Progress $completed $total
+
+        # Fast deletion function
+        function Remove-DirectoryFast {
+            param(`$path)
             
-            if (Test-Path $dir) {
-                Write-Output "در حال حذف $dir ..."
+            if (Test-Path `$path) {
+                Write-Host "Deleting `$path..." -ForegroundColor Cyan
                 
-                # حذف سریع با robocopy (سریع‌ترین روش در ویندوز)
-                $emptyDir = New-Item -ItemType Directory -Path "$env:TEMP\empty" -Force
-                $null = robocopy "$emptyDir" "$dir" /mir /r:1 /w:1 /np /njh /njs
-                Remove-Item $emptyDir -Force
+                # Method 1: Robocopy mirror empty dir (fastest)
+                `$emptyDir = New-Item -ItemType Directory -Path "`$env:TEMP\empty_`$((Get-Date).Ticks)" -Force
+                robocopy "`$emptyDir" "`$path" /mir /r:1 /w:1 /np /njh /njs | Out-Null
+                Remove-Item `$emptyDir -Force -ErrorAction SilentlyContinue
                 
-                # حذف نهایی پوشه
-                $null = cmd /c "rd /s /q `"$dir`" 2>nul"
-                
-                # اگر هنوز وجود داشت، با دسترسی ادمین حذف شود
-                if (Test-Path $dir) {
-                    $null = cmd /c "takeown /f `"$dir`" /r /d y 2>nul"
-                    $null = cmd /c "icacls `"$dir`" /grant administrators:F /t 2>nul"
-                    $null = cmd /c "rd /s /q `"$dir`" 2>nul"
+                # Method 2: Force delete if still exists
+                if (Test-Path `$path) {
+                    cmd /c "rd /s /q `"`$path`"" 2>&1 | Out-Null
                 }
-            } else {
-                Write-Output "$dir وجود نداشت"
+                
+                # Final verification
+                if (Test-Path `$path) {
+                    Write-Host "Failed to delete `$path" -ForegroundColor Red
+                } else {
+                    Write-Host "Successfully deleted `$path" -ForegroundColor Green
+                }
             }
         }
-        
-        Write-Output "!پاکسازی با موفقیت انجام شد"
-        
+
+        # Start cleanup
+        foreach (`$dir in `$dirs) {
+            Remove-DirectoryFast `$dir
+        }
+
+        Write-Host "Cleanup completed!" -ForegroundColor Green
+        pause
+"@
+
+        # Save to desktop
+        [System.IO.File]::WriteAllText("C:\Users\runneradmin\Desktop\cleanup.ps1", $cleanupScript)
+        Write-Host "Cleanup script saved to Desktop"
+
     - name: Create Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
