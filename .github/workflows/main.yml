@@ -69,7 +69,7 @@ jobs:
 
         Write-Host "Cleanup completed!" -ForegroundColor Green
         pause
-"@
+        "@
 
         # Save to desktop
         [System.IO.File]::WriteAllText("C:\Users\runneradmin\Desktop\cleanup.ps1", $cleanupScript)
