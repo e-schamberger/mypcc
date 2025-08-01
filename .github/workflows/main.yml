@@ -4,22 +4,115 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-
     runs-on: windows-latest
 
     steps:
-    - name: Download
+    - name: Download ngrok
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-    - name: Extract
+      
+    - name: Extract ngrok
       run: Expand-Archive ngrok.zip
-    - name: Auth
+      
+    - name: Authenticate ngrok
       run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable TS
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
-    - name: Create Tunnel
+        
+    - name: Enable Remote Desktop
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+        
+    - name: Create Admin User
+      run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
+      
+    - name: Create Cleanup Script
+      run: |
+        $cleanupScript = @'
+        # Disable Recycle Bin for all drives
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket" -Name "NukeOnDelete" -Type DWord -Value 1
+        
+        # List of directories to delete
+        $directories = @(
+            "C:\ghcup",
+            "C:\rtools45",
+            "C:\Julia",
+            "C:\Miniconda",
+            "C:\mingw64",
+            "C:\mingw32",
+            "C:\Strawberry",
+            "C:\msys64",
+            "C:\tools",
+            "C:\vcpkg",
+            "C:\npm",
+            "C:\ProgramData\Package Cache",
+            "C:\ProgramData\chocolatey",
+            "C:\ProgramData\Epic",
+            "C:\ProgramData\docker",
+            "C:\Program Files\LLVM",
+            "C:\Program Files\Azure Cosmos DB Emulator",
+            "C:\Program Files\MongoDB",
+            "C:\Program Files\PostgreSQL",
+            "C:\Program Files\Unity Hub",
+            "C:\Program Files\Microsoft Service Fabric",
+            "C:\Program Files\MySQL",
+            "C:\Program Files\Amazon",
+            "C:\Program Files\Git",
+            "C:\Program Files\Android",
+            "C:\Program Files\R",
+            "C:\Program Files\CMake",
+            "C:\Program Files\dotnet",
+            "C:\Program Files\Microsoft Visual Studio",
+            "C:\Program Files (x86)\Microsoft Visual Studio",
+            "C:\Program Files (x86)\dotnet",
+            "C:\Program Files (x86)\Epic Games",
+            "C:\Program Files (x86)\Microsoft Analysis Services",
+            "C:\Program Files (x86)\WiX Toolset v3.14",
+            "C:\Program Files (x86)\Visual Studio",
+            "C:\Program Files (x86)\Windows Kits",
+            "C:\Program Files (x86)\Android"
+        )
+        
+        $total = $directories.Count
+        $completed = 0
+        
+        foreach ($dir in $directories) {
+            $completed++
+            $percentComplete = [math]::Round(($completed / $total) * 100)
+            
+            Write-Progress -Activity "Cleaning System" -Status "Deleting: $dir" `
+                -PercentComplete $percentComplete `
+                -CurrentOperation "$completed of $total directories ($percentComplete%)"
+            
+            if (Test-Path $dir) {
+                Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        Write-Host "Cleanup completed! $completed directories processed" -ForegroundColor Green
+        '@
+        
+        Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript
+        
+    - name: Create Desktop Shortcuts
+      run: |
+        # Create Cleanup shortcut
+        $shortcutPath = "$env:Public\Desktop\Run Cleanup.lnk"
+        $WshShell = New-Object -ComObject WScript.Shell
+        $Shortcut = $WshShell.CreateShortcut($shortcutPath)
+        $Shortcut.TargetPath = "powershell.exe"
+        $Shortcut.Arguments = "-ExecutionPolicy Bypass -File `"C:\Cleanup.ps1`""
+        $Shortcut.IconLocation = "imageres.dll,99"
+        $Shortcut.Save()
+        
+        # Create Tunnel shortcut
+        $tunnelShortcut = "$env:Public\Desktop\Start Tunnel.lnk"
+        $Shortcut = $WshShell.CreateShortcut($tunnelShortcut)
+        $Shortcut.TargetPath = "cmd.exe"
+        $Shortcut.Arguments = "/c `"C:\ngrok\ngrok.exe tcp 3389`""
+        $Shortcut.IconLocation = "shell32.dll,38"
+        $Shortcut.Save()
+        
+    - name: Start ngrok Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
