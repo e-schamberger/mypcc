@@ -36,18 +36,19 @@ jobs:
     - name: Extract IDM
       run: |
         7z x idm.zip -oidm -p"soft98.ir"
-        # Rename folder to match expected structure
-        $firstFolder = Get-ChildItem -Path .\idm -Directory | Select-Object -First 1
-        Rename-Item -Path $firstFolder.FullName -NewName "Internet.Download.Manager.6.42.42"
+        # Verify extraction
+        Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
         
     - name: Install IDM
       run: |
-        $idmSetup = ".\idm\Internet.Download.Manager.6.42.42\Setup.exe"
-        if (Test-Path $idmSetup) {
-            Start-Process -FilePath $idmSetup -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+        # Find Setup.exe in any subfolder
+        $idmSetup = Get-ChildItem -Path .\idm -Filter "Setup.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        if ($null -ne $idmSetup) {
+            Write-Host "Found IDM setup at: $idmSetup"
+            Start-Process -FilePath "$idmSetup" -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
             Start-Sleep -Seconds 10
         } else {
-            Write-Host "IDM setup file not found at: $idmSetup"
+            Write-Host "ERROR: IDM setup file not found"
             Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
             exit 1
         }
@@ -55,38 +56,46 @@ jobs:
     - name: Copy Crack Files
       run: |
         $idmPath = "${env:ProgramFiles(x86)}\Internet Download Manager"
-        $crackFolder = ".\idm\Internet.Download.Manager.6.42.42\Crack"
-        if (Test-Path $crackFolder) {
+        # Find Crack folder in any subfolder
+        $crackFolder = Get-ChildItem -Path .\idm -Directory -Filter "Crack" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        if ($null -ne $crackFolder) {
+            Write-Host "Found crack files at: $crackFolder"
             Copy-Item -Path "$crackFolder\*" -Destination $idmPath -Recurse -Force
         } else {
-            Write-Host "Crack folder not found at: $crackFolder"
+            Write-Host "ERROR: Crack folder not found"
             exit 1
         }
         
     - name: Run Defender Exclusion
       run: |
-        $defenderScript = ".\idm\Internet.Download.Manager.6.42.42\add_exclusion_windows_defender.cmd"
-        if (Test-Path $defenderScript) {
+        # Find defender script in any subfolder
+        $defenderScript = Get-ChildItem -Path .\idm -Filter "add_exclusion_windows_defender.cmd" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        if ($null -ne $defenderScript) {
+            Write-Host "Found defender script at: $defenderScript"
             Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$defenderScript`"" -Wait
         } else {
-            Write-Host "Defender exclusion script not found at: $defenderScript"
-            exit 1
+            Write-Host "WARNING: Defender exclusion script not found"
         }
         
     - name: Import Registry Key
       run: |
-        $keyFolder = ".\idm\Internet.Download.Manager.6.42.42\Key"
-        if ([Environment]::Is64BitOperatingSystem) {
-            $keyFile = "$keyFolder\Key_64bit.reg"
+        # Find Key folder in any subfolder
+        $keyFolder = Get-ChildItem -Path .\idm -Directory -Filter "Key" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        if ($null -ne $keyFolder) {
+            if ([Environment]::Is64BitOperatingSystem) {
+                $keyFile = "$keyFolder\Key_64bit.reg"
+            } else {
+                $keyFile = "$keyFolder\Key_32bit.reg"
+            }
+            
+            if (Test-Path $keyFile) {
+                Write-Host "Found registry key at: $keyFile"
+                Start-Process -FilePath "regedit.exe" -ArgumentList "/s `"$keyFile`"" -Wait
+            } else {
+                Write-Host "WARNING: Registry key file not found at: $keyFile"
+            }
         } else {
-            $keyFile = "$keyFolder\Key_32bit.reg"
-        }
-        
-        if (Test-Path $keyFile) {
-            Start-Process -FilePath "regedit.exe" -ArgumentList "/s `"$keyFile`"" -Wait
-        } else {
-            Write-Host "Registry key file not found at: $keyFile"
-            exit 1
+            Write-Host "WARNING: Key folder not found"
         }
     # ========== End IDM Steps ==========
         
