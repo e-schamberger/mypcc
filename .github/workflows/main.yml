@@ -4,22 +4,196 @@ on: [push, workflow_dispatch]
 
 jobs:
   build:
-
     runs-on: windows-latest
 
     steps:
-    - name: Download
+    - name: Download ngrok
       run: Invoke-WebRequest https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip -OutFile ngrok.zip
-    - name: Extract
+      
+    - name: Extract ngrok
       run: Expand-Archive ngrok.zip
-    - name: Auth
+      
+    - name: Authenticate ngrok
       run: .\ngrok\ngrok.exe authtoken $Env:NGROK_AUTH_TOKEN
       env:
         NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-    - name: Enable TS
-      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
-    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
-    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
-    - name: Create Tunnel
+        
+    - name: Enable Remote Desktop
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+        
+    - name: Create Admin User
+      run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
+      
+    # ========== IDM Installation Steps ==========
+    - name: Download IDM
+      run: |
+        $url = "https://dl2.soft98.ir/soft/i/Internet.Download.Manager.6.42.42.Final.zip?1754166781"
+        Invoke-WebRequest -Uri $url -OutFile idm.zip
+        
+    - name: Extract IDM
+      run: |
+        7z x idm.zip -oidm -p"soft98.ir"
+        # Rename folder to match expected structure
+        $firstFolder = Get-ChildItem -Path .\idm -Directory | Select-Object -First 1
+        Rename-Item -Path $firstFolder.FullName -NewName "Internet.Download.Manager.6.42.42"
+        
+    - name: Install IDM
+      run: |
+        $idmSetup = ".\idm\Internet.Download.Manager.6.42.42\Setup.exe"
+        if (Test-Path $idmSetup) {
+            Start-Process -FilePath $idmSetup -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+            Start-Sleep -Seconds 10
+        } else {
+            Write-Host "IDM setup file not found at: $idmSetup"
+            Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
+            exit 1
+        }
+        
+    - name: Copy Crack Files
+      run: |
+        $idmPath = "${env:ProgramFiles(x86)}\Internet Download Manager"
+        $crackFolder = ".\idm\Internet.Download.Manager.6.42.42\Crack"
+        if (Test-Path $crackFolder) {
+            Copy-Item -Path "$crackFolder\*" -Destination $idmPath -Recurse -Force
+        } else {
+            Write-Host "Crack folder not found at: $crackFolder"
+            exit 1
+        }
+        
+    - name: Run Defender Exclusion
+      run: |
+        $defenderScript = ".\idm\Internet.Download.Manager.6.42.42\add_exclusion_windows_defender.cmd"
+        if (Test-Path $defenderScript) {
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$defenderScript`"" -Wait
+        } else {
+            Write-Host "Defender exclusion script not found at: $defenderScript"
+            exit 1
+        }
+        
+    - name: Import Registry Key
+      run: |
+        $keyFolder = ".\idm\Internet.Download.Manager.6.42.42\Key"
+        if ([Environment]::Is64BitOperatingSystem) {
+            $keyFile = "$keyFolder\Key_64bit.reg"
+        } else {
+            $keyFile = "$keyFolder\Key_32bit.reg"
+        }
+        
+        if (Test-Path $keyFile) {
+            Start-Process -FilePath "regedit.exe" -ArgumentList "/s `"$keyFile`"" -Wait
+        } else {
+            Write-Host "Registry key file not found at: $keyFile"
+            exit 1
+        }
+    # ========== End IDM Steps ==========
+        
+    - name: Create Cleanup Script
+      run: |
+        $cleanupScript = @'
+        # Disable Recycle Bin for all drives
+        Set-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket" -Name "NukeOnDelete" -Type DWord -Value 1
+        
+        # List of directories to delete
+        $directories = @(
+            "C:\ghcup",
+            "C:\rtools45",
+            "C:\Julia",
+            "C:\Miniconda",
+            "C:\mingw64",
+            "C:\mingw32",
+            "C:\Strawberry",
+            "C:\msys64",
+            "C:\tools",
+            "C:\vcpkg",
+            "C:\npm",
+            "C:\ProgramData\Package Cache",
+            "C:\ProgramData\chocolatey",
+            "C:\ProgramData\Epic",
+            "C:\ProgramData\docker",
+            "C:\Program Files\LLVM",
+            "C:\Program Files\Azure Cosmos DB Emulator",
+            "C:\Program Files\MongoDB",
+            "C:\Program Files\PostgreSQL",
+            "C:\Program Files\Unity Hub",
+            "C:\Program Files\Microsoft Service Fabric",
+            "C:\Program Files\MySQL",
+            "C:\Program Files\Amazon",
+            "C:\Program Files\Git",
+            "C:\Program Files\Android",
+            "C:\Program Files\R",
+            "C:\Program Files\CMake",
+            "C:\Program Files\dotnet",
+            "C:\Program Files\Microsoft Visual Studio",
+            "C:\Program Files (x86)\Microsoft Visual Studio",
+            "C:\Program Files (x86)\dotnet",
+            "C:\Program Files (x86)\Epic Games",
+            "C:\Program Files (x86)\Microsoft Analysis Services",
+            "C:\Program Files (x86)\WiX Toolset v3.14",
+            "C:\Program Files (x86)\Visual Studio",
+            "C:\Program Files (x86)\Windows Kits",
+            "C:\Program Files (x86)\Android"
+            "C:\Users\installer\AppData\Local\Temp"
+            "C:\Users\installer\AppData\Local\unityhub-updater"
+            "C:\Users\installer\AppData\Local\Epic Games"
+            "C:\Users\Default\.rustup"
+        )
+        
+        $total = $directories.Count
+        $completed = 0
+        $successCount = 0
+        $skippedCount = 0
+        
+        function Remove-All {
+            param([string]$Path)
+            $responseFile = [System.IO.Path]::GetTempFileName()
+            Set-Content $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
+            try {
+                cmd /c "del /f/s/q/a `"$Path`" < `"$responseFile`" 2>&1"
+                cmd /c "rd /s/q `"$Path`" < `"$responseFile`" 2>&1"
+                return $true
+            }
+            catch { return $false }
+            finally { Remove-Item $responseFile -ErrorAction SilentlyContinue }
+        }
+        
+        foreach ($dir in $directories) {
+            $completed++
+            $percentComplete = [math]::Round(($completed / $total) * 100)
+            Write-Progress -Activity "Cleaning System" -Status "Deleting: $dir" -PercentComplete $percentComplete -CurrentOperation "$completed of $total directories ($percentComplete%)"
+            if (Test-Path $dir) {
+                if (Remove-All -Path $dir) { $successCount++ }
+                else { $skippedCount++ }
+            }
+            else { $skippedCount++ }
+        }
+        
+        Write-Host "`nCleanup Summary:" -ForegroundColor Cyan
+        Write-Host "Successfully deleted: $successCount directories" -ForegroundColor Green
+        Write-Host "Skipped: $skippedCount directories" -ForegroundColor Yellow
+        Write-Host "Total processed: $completed of $total directories" -ForegroundColor White
+        Write-Host "`nOperation completed. Press any key to close this window..."
+        $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        '@
+        Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript -Encoding UTF8
+        
+    - name: Create Desktop Shortcuts
+      run: |
+        $WshShell = New-Object -ComObject WScript.Shell
+        # Cleanup Shortcut
+        $shortcut = $WshShell.CreateShortcut("$env:Public\Desktop\Run Cleanup.lnk")
+        $shortcut.TargetPath = "powershell.exe"
+        $shortcut.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"C:\Cleanup.ps1`""
+        $shortcut.IconLocation = "imageres.dll,99"
+        $shortcut.Save()
+        # Tunnel Shortcut
+        $tunnelShortcut = $WshShell.CreateShortcut("$env:Public\Desktop\Start Tunnel.lnk")
+        $tunnelShortcut.TargetPath = "cmd.exe"
+        $tunnelShortcut.Arguments = "/k `"C:\ngrok\ngrok.exe tcp 3389`""
+        $tunnelShortcut.IconLocation = "shell32.dll,38"
+        $tunnelShortcut.Save()
+        
+    - name: Start ngrok Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
