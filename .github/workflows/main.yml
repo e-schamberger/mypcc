@@ -40,18 +40,45 @@ jobs:
         Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
         
     - name: Install IDM
-      run: |
-        # Find Setup.exe in any subfolder
-        $idmSetup = Get-ChildItem -Path .\idm -Filter "Setup.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
-        if ($null -ne $idmSetup) {
-            Write-Host "Found IDM setup at: $idmSetup"
-            Start-Process -FilePath "$idmSetup" -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
-            Start-Sleep -Seconds 10
-        } else {
-            Write-Host "ERROR: IDM setup file not found"
-            Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
-            exit 1
-        }
+  run: |
+    # Find Setup.exe recursively
+    $idmSetup = Get-ChildItem -Path .\idm -Filter "Setup.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+    
+    if ($null -eq $idmSetup) {
+      Write-Host "::error::IDM Setup.exe not found!"
+      Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
+      exit 1
+    }
+
+    Write-Host "Found IDM Setup at: $idmSetup"
+    
+    # Run installation with verbose logging
+    $installLog = "$env:TEMP\idm_install.log"
+    Start-Process -FilePath "$idmSetup" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /LOG=`"$installLog`"" -Wait -NoNewWindow
+    
+    # Verify installation
+    $idmPath = "${env:ProgramFiles(x86)}\Internet Download Manager\IDMan.exe"
+    if (Test-Path $idmPath) {
+      Write-Host "::group::IDM Installation Log"
+      Get-Content $installLog
+      Write-Host "::endgroup::"
+      Write-Host "IDM successfully installed!"
+    } else {
+      Write-Host "::error::IDM installation failed!"
+      Write-Host "::group::Installation Log"
+      Get-Content $installLog
+      Write-Host "::endgroup::"
+      exit 1
+    }
+    
+    # Additional verification steps
+    Start-Sleep -Seconds 5
+    $idmProcess = Get-Process -Name "IDMan" -ErrorAction SilentlyContinue
+    if ($null -ne $idmProcess) {
+      Write-Host "IDM process is running (PID: $($idmProcess.Id))"
+    } else {
+      Write-Host "IDM process not running (expected after silent install)"
+    }
         
     - name: Copy Crack Files
       run: |
