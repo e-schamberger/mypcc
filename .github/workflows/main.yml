@@ -40,7 +40,7 @@ jobs:
         Get-ChildItem -Path .\idm -Recurse | Format-Table -AutoSize
         
     - name: Install IDM
-  run: |
+      run: |
     # Find Setup.exe recursively
     $idmSetup = Get-ChildItem -Path .\idm -Filter "Setup.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
     
