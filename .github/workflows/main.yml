@@ -42,7 +42,7 @@ jobs:
     - name: Install IDM
       run: |
         # Find Setup.exe in any subfolder
-        $idmSetup = Get-ChildItem -Path .\idm -Filter "Setup.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+        $idmSetup = Get-ChildItem -Path C:\Users\runneradmin\Downloads\Internet.Download.Manager.6.42.42.Final\Internet.Download.Manager.6.42.42/Setup..exe -Filter "Setup.exe" -Recurse | Select-Object -First 1 -ExpandProperty FullName
         if ($null -ne $idmSetup) {
             Write-Host "Found IDM setup at: $idmSetup"
             Start-Process -FilePath "$idmSetup" -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
