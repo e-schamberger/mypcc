@@ -160,4 +160,4 @@ jobs:
         $Shortcut.Save()
         
     - name: Start ngrok Tunnel
-      run: .\ngrok\ngrok.exe tcp 3389 --url parakeet-concrete-noticeably.ngrok-free.app:80
+      run: .\ngrok\ngrok.exe tcp 3389 --url parakeet-concrete-noticeably.ngrok-free.app 80
