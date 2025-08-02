@@ -27,6 +27,40 @@ jobs:
     - name: Create Admin User
       run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "Shahid@123" -Force)
       
+    # ========== IDM Installation Steps ==========
+    - name: Download IDM
+      run: |
+        $url = "https://dl2.soft98.ir/soft/i/Internet.Download.Manager.6.42.42.Final.zip?1754166781"
+        Invoke-WebRequest -Uri $url -OutFile idm.zip
+        
+    - name: Extract IDM
+      run: |
+        7z x idm.zip -oidm -p"soft98.ir"
+        
+    - name: Install IDM
+      run: |
+        Start-Process -FilePath ".\idm\Setup.exe" -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+        Start-Sleep -Seconds 10  # Allow installation to complete
+        
+    - name: Copy Crack Files
+      run: |
+        $idmPath = "${env:ProgramFiles(x86)}\Internet Download Manager"
+        Copy-Item -Path ".\idm\Crack\*" -Destination $idmPath -Recurse -Force
+        
+    - name: Run Defender Exclusion
+      run: |
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c .\idm\add_exclusion_windows_defender.cmd" -Wait
+        
+    - name: Import Registry Key
+      run: |
+        if ([Environment]::Is64BitOperatingSystem) {
+            $keyFile = ".\idm\Key\Key_64bit.reg"
+        } else {
+            $keyFile = ".\idm\Key\Key_32bit.reg"
+        }
+        Start-Process -FilePath "regedit.exe" -ArgumentList "/s `"$keyFile`"" -Wait
+    # ========== End IDM Steps ==========
+        
     - name: Create Cleanup Script
       run: |
         $cleanupScript = @'
@@ -72,12 +106,10 @@ jobs:
             "C:\Program Files (x86)\Visual Studio",
             "C:\Program Files (x86)\Windows Kits",
             "C:\Program Files (x86)\Android"
-            "C:\Program Files (x86)\Android"
             "C:\Users\installer\AppData\Local\Temp"
             "C:\Users\installer\AppData\Local\unityhub-updater"
             "C:\Users\installer\AppData\Local\Epic Games"
             "C:\Users\Default\.rustup"
-            
         )
         
         $total = $directories.Count
@@ -85,79 +117,54 @@ jobs:
         $successCount = 0
         $skippedCount = 0
         
-        # Function to automatically answer prompts
         function Remove-All {
             param([string]$Path)
-            
-            # Create temp response file
             $responseFile = [System.IO.Path]::GetTempFileName()
             Set-Content $responseFile -Value "Y`nY`nY`nY`nY`nY`nY`nY`nY`nY`nY"
-            
             try {
-                # Delete files and folders
                 cmd /c "del /f/s/q/a `"$Path`" < `"$responseFile`" 2>&1"
                 cmd /c "rd /s/q `"$Path`" < `"$responseFile`" 2>&1"
                 return $true
             }
-            catch {
-                return $false
-            }
-            finally {
-                Remove-Item $responseFile -ErrorAction SilentlyContinue
-            }
+            catch { return $false }
+            finally { Remove-Item $responseFile -ErrorAction SilentlyContinue }
         }
         
         foreach ($dir in $directories) {
             $completed++
             $percentComplete = [math]::Round(($completed / $total) * 100)
-            
-            Write-Progress -Activity "Cleaning System" -Status "Deleting: $dir" `
-                -PercentComplete $percentComplete `
-                -CurrentOperation "$completed of $total directories ($percentComplete%)"
-            
+            Write-Progress -Activity "Cleaning System" -Status "Deleting: $dir" -PercentComplete $percentComplete -CurrentOperation "$completed of $total directories ($percentComplete%)"
             if (Test-Path $dir) {
-                if (Remove-All -Path $dir) {
-                    $successCount++
-                }
-                else {
-                    $skippedCount++
-                }
+                if (Remove-All -Path $dir) { $successCount++ }
+                else { $skippedCount++ }
             }
-            else {
-                $skippedCount++
-            }
+            else { $skippedCount++ }
         }
         
         Write-Host "`nCleanup Summary:" -ForegroundColor Cyan
         Write-Host "Successfully deleted: $successCount directories" -ForegroundColor Green
         Write-Host "Skipped: $skippedCount directories" -ForegroundColor Yellow
         Write-Host "Total processed: $completed of $total directories" -ForegroundColor White
-        
-        # Keep window open
         Write-Host "`nOperation completed. Press any key to close this window..."
         $null = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
         '@
-        
         Set-Content -Path "C:\Cleanup.ps1" -Value $cleanupScript -Encoding UTF8
         
     - name: Create Desktop Shortcuts
       run: |
-        # Create Cleanup shortcut with persistent window
-        $shortcutPath = "$env:Public\Desktop\Run Cleanup.lnk"
         $WshShell = New-Object -ComObject WScript.Shell
-        $Shortcut = $WshShell.CreateShortcut($shortcutPath)
-        $Shortcut.TargetPath = "powershell.exe"
-        $Shortcut.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"C:\Cleanup.ps1`""
-        $Shortcut.IconLocation = "imageres.dll,99"
-        $Shortcut.Save()
-        
-        # Create Tunnel shortcut
-        $tunnelShortcut = "$env:Public\Desktop\Start Tunnel.lnk"
-        $Shortcut = $WshShell.CreateShortcut($tunnelShortcut)
-        $Shortcut.TargetPath = "cmd.exe"
-        $Shortcut.Arguments = "/k `"C:\ngrok\ngrok.exe tcp 3389`""
-        $Shortcut.IconLocation = "shell32.dll,38"
-        $Shortcut.Save()
+        # Cleanup Shortcut
+        $shortcut = $WshShell.CreateShortcut("$env:Public\Desktop\Run Cleanup.lnk")
+        $shortcut.TargetPath = "powershell.exe"
+        $shortcut.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"C:\Cleanup.ps1`""
+        $shortcut.IconLocation = "imageres.dll,99"
+        $shortcut.Save()
+        # Tunnel Shortcut
+        $tunnelShortcut = $WshShell.CreateShortcut("$env:Public\Desktop\Start Tunnel.lnk")
+        $tunnelShortcut.TargetPath = "cmd.exe"
+        $tunnelShortcut.Arguments = "/k `"C:\ngrok\ngrok.exe tcp 3389`""
+        $tunnelShortcut.IconLocation = "shell32.dll,38"
+        $tunnelShortcut.Save()
         
     - name: Start ngrok Tunnel
       run: .\ngrok\ngrok.exe tcp 3389
