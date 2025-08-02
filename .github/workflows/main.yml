@@ -39,26 +39,30 @@ jobs:
         
     - name: Install IDM
       run: |
-        Start-Process -FilePath ".\idm\Setup.exe" -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
-        Start-Sleep -Seconds 10  # Allow installation to complete
+        $idmSetup = (Get-ChildItem -Path .\idm -Filter "Setup.exe" -Recurse | Select-Object -First 1).FullName
+        Start-Process -FilePath "$idmSetup" -ArgumentList "/VERYSILENT /NORESTART /SUPPRESSMSGBOXES" -Wait
+        Start-Sleep -Seconds 10
         
     - name: Copy Crack Files
       run: |
         $idmPath = "${env:ProgramFiles(x86)}\Internet Download Manager"
-        Copy-Item -Path ".\idm\Crack\*" -Destination $idmPath -Recurse -Force
+        $crackFolder = Get-ChildItem -Path .\idm -Directory -Filter "Crack" -Recurse | Select-Object -First 1
+        Copy-Item -Path "$crackFolder\*" -Destination $idmPath -Recurse -Force
         
     - name: Run Defender Exclusion
       run: |
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/c .\idm\add_exclusion_windows_defender.cmd" -Wait
+        $defenderScript = Get-ChildItem -Path .\idm -Filter "add_exclusion_windows_defender.cmd" -Recurse | Select-Object -First 1
+        Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$defenderScript`"" -Wait
         
     - name: Import Registry Key
       run: |
+        $keyFolder = Get-ChildItem -Path .\idm -Directory -Filter "Key" -Recurse | Select-Object -First 1
         if ([Environment]::Is64BitOperatingSystem) {
-            $keyFile = ".\idm\Key\Key_64bit.reg"
+            $keyFile = Get-ChildItem -Path "$keyFolder" -Filter "Key_64bit.reg" | Select-Object -First 1
         } else {
-            $keyFile = ".\idm\Key\Key_32bit.reg"
+            $keyFile = Get-ChildItem -Path "$keyFolder" -Filter "Key_32bit.reg" | Select-Object -First 1
         }
-        Start-Process -FilePath "regedit.exe" -ArgumentList "/s `"$keyFile`"" -Wait
+        Start-Process -FilePath "regedit.exe" -ArgumentList "/s `"$($keyFile.FullName)`"" -Wait
     # ========== End IDM Steps ==========
         
     - name: Create Cleanup Script
